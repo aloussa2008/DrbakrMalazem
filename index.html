@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dr Bakr Team Malzama — Math Exam Question Bank</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div id="login-screen-root"></div>
+
+<!-- ============ APP SHELL ============ -->
+<div id="app-shell" class="app-shell" style="display:none;">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <div class="brand">
+        <svg width="26" height="26" viewBox="0 0 40 40" fill="none">
+          <rect x="2" y="2" width="36" height="36" rx="4" stroke="currentColor" stroke-width="2.5"/>
+          <path d="M10 14h20M10 20h20M10 26h12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <span>Dr Bakr Team Malzama</span>
+      </div>
+      <button class="icon-btn" id="sidebar-close" aria-label="Close menu">✕</button>
+    </div>
+
+    <nav class="nav-group">
+      <p class="nav-label">Overview</p>
+      <a href="#/dashboard" class="nav-link" data-route="dashboard">
+        <span class="nav-ico">◧</span>Dashboard
+      </a>
+      <a href="#/statistics" class="nav-link" data-route="statistics">
+        <span class="nav-ico">◨</span>Statistics
+      </a>
+    </nav>
+
+    <nav class="nav-group">
+      <p class="nav-label">Work</p>
+      <a href="#/quizzes" class="nav-link" data-route="quizzes">
+        <span class="nav-ico">▤</span>Quizzes
+      </a>
+      <a href="#/questions" class="nav-link" data-route="questions">
+        <span class="nav-ico">▥</span>All Questions
+      </a>
+      <a href="#/missing" class="nav-link" data-route="missing">
+        <span class="nav-ico">▨</span>Missing Report
+      </a>
+    </nav>
+
+    <nav class="nav-group nav-chapters">
+      <p class="nav-label">Chapters</p>
+      <div id="chapter-nav-list" class="chapter-nav-list"></div>
+    </nav>
+
+    <nav class="nav-group" id="nav-group-admin">
+      <p class="nav-label">Admin</p>
+      <a href="#/users" class="nav-link" data-route="users">
+        <span class="nav-ico">☺</span>User Management
+      </a>
+      <a href="#/activity" class="nav-link" data-route="activity">
+        <span class="nav-ico">◷</span>User Activity
+      </a>
+    </nav>
+
+    <nav class="nav-group" id="nav-group-data">
+      <p class="nav-label">Data</p>
+      <a href="#/data" class="nav-link" data-route="data">
+        <span class="nav-ico">⇅</span>Import / Export
+      </a>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <div class="user-chip" id="sidebar-user-chip">
+        <div class="user-avatar" id="sidebar-user-avatar">?</div>
+        <div class="user-meta">
+          <span id="sidebar-user-name">—</span>
+          <span class="user-role" id="sidebar-user-role">—</span>
+        </div>
+        <button class="icon-btn" id="logout-btn" title="Log out">⏻</button>
+      </div>
+      <button class="theme-toggle" id="theme-toggle" title="Toggle theme (T)">
+        <span id="theme-icon">☾</span> <span id="theme-label">Dark</span>
+      </button>
+    </div>
+  </aside>
+
+  <div class="sidebar-scrim" id="sidebar-scrim"></div>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn menu-btn" id="menu-btn" aria-label="Open menu">☰</button>
+      <div class="topbar-search">
+        <span class="search-ico">⌕</span>
+        <input type="text" id="global-search" placeholder="Search quiz, chapter, question #, notes… (press /)" />
+      </div>
+      <button class="btn btn-primary btn-sm" id="quick-add-btn">+ Add Question</button>
+    </header>
+
+    <div id="toast-stack" class="toast-stack"></div>
+
+    <div id="view-root" class="view-root">
+      <!-- injected per-route -->
+    </div>
+  </main>
+</div>
+
+<!-- ============ MODAL ROOT ============ -->
+<div id="modal-root"></div>
+
+<script src="script.js"></script>
+</body>
+</html>
