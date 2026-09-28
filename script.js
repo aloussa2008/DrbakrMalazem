@@ -112,12 +112,21 @@ const Store = (() => {
     users: "ledger_users",
     session: "ledger_session",
     activity: "ledger_activity",
+    drafts: "ledger_drafts",
   };
+
+  // In-memory cache so reads never depend on localStorage being available.
+  const cache = new Map();
 
   function _get(key, fallback) {
     try {
+      if (cache.has(key)) {
+        const c = cache.get(key);
+        return c === undefined ? fallback : JSON.parse(c);
+      }
       const raw = localStorage.getItem(key);
       if (raw === null) return fallback;
+      cache.set(key, raw);
       return JSON.parse(raw);
     } catch (e) {
       console.error("Store read failed for", key, e);
@@ -125,15 +134,19 @@ const Store = (() => {
     }
   }
   function _set(key, value) {
+    const raw = JSON.stringify(value);
+    cache.set(key, raw);              // always succeeds
+    let lsOk = true;
     try {
-      localStorage.setItem(key, JSON.stringify(value));
-      return true;
+      localStorage.setItem(key, raw); // fast synchronous copy
     } catch (e) {
-      console.error("Store write failed for", key, e);
-      Toast.show("Storage is full or unavailable — changes may not be saved.", "error");
-      return false;
+      lsOk = false;
+      console.error("localStorage write failed for", key, e);
     }
+    Persist.mirror(key, raw, lsOk);   // durable IndexedDB copy
+    return true;
   }
+  function _hydrate(key, raw) { cache.set(key, raw); }
 
   return {
     getQuizzes: () => _get(KEYS.quizzes, []),
@@ -148,14 +161,152 @@ const Store = (() => {
     setSession: (v) => _set(KEYS.session, v),
     getActivity: () => _get(KEYS.activity, []),
     setActivity: (v) => _set(KEYS.activity, v),
+    getDrafts: () => _get(KEYS.drafts, {}),
+    setDrafts: (v) => _set(KEYS.drafts, v),
     KEYS,
+    _hydrate,
+    _rawAll: () => Object.values(KEYS).map((k) => [k, cache.has(k) ? cache.get(k) : localStorage.getItem(k)]),
   };
+})();
+
+/* ============================== PERSIST (IndexedDB durable mirror) ============================== */
+// Every Store write is mirrored into IndexedDB. On startup, anything missing from
+// localStorage (cleared by the browser, quota problems, etc.) is restored from IndexedDB.
+// No TTL, no expiry, no sessionStorage. Data is only removed when the app explicitly deletes it.
+const Persist = (() => {
+  const DB_NAME = "ledger_db";
+  const STORE = "kv";
+  let dbPromise = null;
+  let warned = false;
+
+  function openDB() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve) => {
+      try {
+        if (!("indexedDB" in window)) return resolve(null);
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = () => {
+          if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+        req.onblocked = () => resolve(null);
+      } catch (e) {
+        resolve(null);
+      }
+    });
+    return dbPromise;
+  }
+
+  function idbGetAll(db) {
+    return new Promise((resolve) => {
+      try {
+        const out = {};
+        const req = db.transaction(STORE, "readonly").objectStore(STORE).openCursor();
+        req.onsuccess = () => {
+          const cur = req.result;
+          if (cur) { out[cur.key] = cur.value; cur.continue(); } else resolve(out);
+        };
+        req.onerror = () => resolve(out);
+      } catch (e) { resolve({}); }
+    });
+  }
+
+  async function mirror(key, raw, lsOk = true) {
+    const db = await openDB();
+    if (!db) {
+      if (!lsOk && !warned) {
+        warned = true;
+        Toast.show("Browser storage is unavailable — changes may not be saved.", "error");
+      }
+      return;
+    }
+    try {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).put(raw, key);
+      tx.onerror = () => console.error("IndexedDB write failed for", key);
+    } catch (e) {
+      console.error("IndexedDB write failed for", key, e);
+    }
+  }
+
+  // Runs once before the app boots.
+  async function init() {
+    try {
+      if (navigator.storage && navigator.storage.persist) {
+        // Ask the browser never to evict this site's data automatically.
+        navigator.storage.persist().catch(() => {});
+      }
+    } catch (e) {}
+    const db = await openDB();
+    if (!db) return;
+    const saved = await idbGetAll(db);
+    for (const key of Object.values(Store.KEYS)) {
+      let lsRaw = null;
+      try { lsRaw = localStorage.getItem(key); } catch (e) {}
+      if (lsRaw === null && saved[key] !== undefined) {
+        // localStorage lost it, so restore from IndexedDB.
+        Store._hydrate(key, saved[key]);
+        try { localStorage.setItem(key, saved[key]); } catch (e) {}
+      } else if (lsRaw !== null && saved[key] !== lsRaw) {
+        // Existing data (or first run after this update) — back it up to IndexedDB.
+        mirror(key, lsRaw, true);
+      }
+    }
+  }
+
+  function flushAll() {
+    Store._rawAll().forEach(([k, raw]) => { if (raw !== null && raw !== undefined) mirror(k, raw, true); });
+  }
+
+  return { init, mirror, flushAll };
+})();
+
+/* ============================== DRAFTS (autosave while typing) ============================== */
+// Everything typed into a form modal is saved on every keystroke and restored if the
+// modal is closed by accident, the page refreshes, or the browser is reopened.
+// A draft is only removed when the form is successfully submitted.
+const Draft = (() => {
+  function attach(modalEl, key) {
+    if (!modalEl || !key) return;
+    const fields = () => modalEl.querySelectorAll("input[id], textarea[id], select[id]");
+    const saved = Store.getDrafts()[key];
+    if (saved) {
+      let restored = false;
+      fields().forEach((el) => {
+        if (Object.prototype.hasOwnProperty.call(saved, el.id) && el.value !== saved[el.id]) {
+          el.value = saved[el.id];
+          restored = true;
+        }
+      });
+      const hid = modalEl.querySelector("#qf-difficulty");
+      if (hid) {
+        modalEl.querySelectorAll("#qf-diff-picker .diff-opt").forEach((b) => {
+          b.dataset.active = String(b.dataset.level === hid.value);
+        });
+      }
+      if (restored) Toast.show("Restored your unsaved entries.", "info");
+    }
+    const save = () => {
+      const snapshot = {};
+      fields().forEach((el) => { snapshot[el.id] = el.value; });
+      const all = Store.getDrafts();
+      all[key] = snapshot;
+      Store.setDrafts(all);
+    };
+    modalEl.addEventListener("input", save);
+    modalEl.addEventListener("change", save);
+    modalEl.addEventListener("click", (e) => { if (e.target.closest(".diff-opt")) save(); });
+  }
+  function clear(key) {
+    const all = Store.getDrafts();
+    if (key in all) { delete all[key]; Store.setDrafts(all); }
+  }
+  return { attach, clear };
 })();
 
 /* ============================== ACTIVITY LOG ============================== */
 const Activity = (() => {
-  const MAX_ENTRIES = 500;
-
   // userOverride lets Auth log a logout for the user who just got cleared
   // from the session, since by then Auth.currentUser() would return null.
   function log(action, details = "", userOverride = undefined) {
@@ -170,7 +321,6 @@ const Activity = (() => {
       details,
       at: Utils.todayISO(),
     });
-    if (entries.length > MAX_ENTRIES) entries.length = MAX_ENTRIES;
     Store.setActivity(entries);
   }
 
@@ -208,7 +358,7 @@ const Toast = (() => {
 const Modal = (() => {
   let onCloseCb = null;
 
-  function open(innerHtml, { wide = false, onClose = null } = {}) {
+  function open(innerHtml, { wide = false, onClose = null, draftKey = null } = {}) {
     onCloseCb = onClose;
     const root = document.getElementById("modal-root");
     root.innerHTML = `
@@ -221,6 +371,7 @@ const Modal = (() => {
       if (e.target === overlay) close();
     });
     document.addEventListener("keydown", escListener);
+    if (draftKey) Draft.attach(overlay.querySelector(".modal"), draftKey);
   }
 
   function escListener(e) {
@@ -714,6 +865,7 @@ const QuestionForm = (() => {
   function open({ question = null, presetQuizId = null } = {}) {
     const quizzes = Data.getQuizzes();
     const isEdit = !!question;
+    const draftKey = isEdit ? `question:${question.id}` : "question:new";
     const q = question || { quizId: presetQuizId || "", qNumInQuiz: "", chapter: "", chapterQNum: "", difficulty: "", notes: "" };
 
     if (quizzes.length === 0) {
@@ -789,7 +941,7 @@ const QuestionForm = (() => {
         <button class="btn btn-secondary" id="qf-cancel">Cancel</button>
         <button class="btn btn-primary" id="qf-save">${isEdit ? "Save Changes" : "Add Question"}</button>
       </div>
-    `, { wide: false });
+    `, { wide: false, draftKey });
 
     document.getElementById("qf-close").addEventListener("click", Modal.close);
     document.getElementById("qf-cancel").addEventListener("click", Modal.close);
@@ -833,6 +985,7 @@ const QuestionForm = (() => {
         Activity.log("Added question", `Q${payload.qNumInQuiz} · ${payload.chapter}`);
         Toast.show("Question added.", "success");
       }
+      Draft.clear(draftKey);
       Modal.close();
       Router.rerender();
     });
@@ -844,6 +997,7 @@ const QuestionForm = (() => {
 const QuizForm = (() => {
   function open({ quiz = null } = {}) {
     const isEdit = !!quiz;
+    const draftKey = isEdit ? `quiz:${quiz.id}` : "quiz:new";
     const q = quiz || { name: "", numQuestions: "", notes: "" };
     Modal.open(`
       <div class="modal-head">
@@ -873,7 +1027,7 @@ const QuizForm = (() => {
         <button class="btn btn-secondary" id="qz-cancel">Cancel</button>
         <button class="btn btn-primary" id="qz-save">${isEdit ? "Save Changes" : "Create Quiz"}</button>
       </div>
-    `);
+    `, { draftKey });
     document.getElementById("qz-close").addEventListener("click", Modal.close);
     document.getElementById("qz-cancel").addEventListener("click", Modal.close);
     document.getElementById("qz-save").addEventListener("click", () => {
@@ -912,6 +1066,7 @@ const QuizForm = (() => {
         Activity.log("Created quiz", name);
         Toast.show("Quiz created.", "success");
       }
+      Draft.clear(draftKey);
       Modal.close();
       Router.rerender();
     });
@@ -923,6 +1078,7 @@ const QuizForm = (() => {
 const UserForm = (() => {
   function open({ user = null } = {}) {
     const isEdit = !!user;
+    const draftKey = isEdit ? `user:${user.id}` : "user:new";
     const u = user || { fullName: "", username: "", password: "", role: "user" };
     Modal.open(`
       <div class="modal-head">
@@ -959,7 +1115,7 @@ const UserForm = (() => {
         <button class="btn btn-secondary" id="uf-cancel">Cancel</button>
         <button class="btn btn-primary" id="uf-save">${isEdit ? "Save Changes" : "Create User"}</button>
       </div>
-    `);
+    `, { draftKey });
     document.getElementById("uf-close").addEventListener("click", Modal.close);
     document.getElementById("uf-cancel").addEventListener("click", Modal.close);
     document.getElementById("uf-save").addEventListener("click", () => {
@@ -992,6 +1148,7 @@ const UserForm = (() => {
         Activity.log("Created user", payload.fullName);
         Toast.show("User created.", "success");
       }
+      Draft.clear(draftKey);
       Modal.close();
       Router.rerender();
     });
@@ -1021,7 +1178,7 @@ const ResetPasswordForm = (() => {
         <button class="btn btn-secondary" id="rp-cancel">Cancel</button>
         <button class="btn btn-primary" id="rp-save">Reset Password</button>
       </div>
-    `);
+    `, { draftKey: `resetpw:${userId}` });
     document.getElementById("rp-close").addEventListener("click", Modal.close);
     document.getElementById("rp-cancel").addEventListener("click", Modal.close);
     document.getElementById("rp-save").addEventListener("click", () => {
@@ -1034,6 +1191,7 @@ const ResetPasswordForm = (() => {
       Data.updateUser(userId, { password });
       Activity.log("Reset password", user.fullName);
       Toast.show("Password reset.", "success");
+      Draft.clear(`resetpw:${userId}`);
       Modal.close();
       Router.rerender();
     });
@@ -1063,7 +1221,7 @@ const ChangeUsernameForm = (() => {
         <button class="btn btn-secondary" id="cu-cancel">Cancel</button>
         <button class="btn btn-primary" id="cu-save">Save</button>
       </div>
-    `);
+    `, { draftKey: `chuser:${userId}` });
     document.getElementById("cu-close").addEventListener("click", Modal.close);
     document.getElementById("cu-cancel").addEventListener("click", Modal.close);
     document.getElementById("cu-save").addEventListener("click", () => {
@@ -1084,6 +1242,7 @@ const ChangeUsernameForm = (() => {
       Data.updateUser(userId, { username });
       Activity.log("Changed username", `${user.username} → ${username}`);
       Toast.show("Username updated.", "success");
+      Draft.clear(`chuser:${userId}`);
       Modal.close();
       Router.rerender();
     });
@@ -2218,7 +2377,13 @@ function initGlobalChrome() {
   });
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  await Persist.init(); // restore anything localStorage lost, before the app reads data
+  window.addEventListener("pagehide", Persist.flushAll);
+  window.addEventListener("storage", (e) => {
+    // Keep multiple open tabs in sync so one tab can't overwrite another with stale data.
+    if (e.key && Object.values(Store.KEYS).includes(e.key) && e.newValue !== null) Store._hydrate(e.key, e.newValue);
+  });
   applyTheme(Store.getTheme());
   Auth.ensureSeedUsers();
   if (Auth.currentUser()) {
