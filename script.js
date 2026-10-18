@@ -561,6 +561,8 @@ const Data = (() => {
       chapter: payload.chapter,
       chapterQNum: Number(payload.chapterQNum),
       difficulty: payload.difficulty,
+      bookName: (payload.bookName || "").trim(),
+      answer: (payload.answer || "").trim(),
       notes: (payload.notes || "").trim(),
       dateAdded: Utils.todayISO(),
     };
@@ -575,6 +577,9 @@ const Data = (() => {
     const merged = { ...questions[idx], ...patch };
     if (patch.qNumInQuiz !== undefined) merged.qNumInQuiz = Number(patch.qNumInQuiz);
     if (patch.chapterQNum !== undefined) merged.chapterQNum = Number(patch.chapterQNum);
+    if (patch.bookName !== undefined) merged.bookName = (patch.bookName || "").trim();
+    if (patch.answer !== undefined) merged.answer = (patch.answer || "").trim();
+    if (patch.notes !== undefined) merged.notes = (patch.notes || "").trim();
     questions[idx] = merged;
     Store.setQuestions(questions);
     return merged;
@@ -649,6 +654,8 @@ const Data = (() => {
           String(q.qNumInQuiz),
           q.chapter,
           String(q.chapterQNum),
+          q.bookName || "",
+          q.answer || "",
           q.difficulty,
           q.notes,
         ]
@@ -729,13 +736,15 @@ const Data = (() => {
   function exportCSV() {
     const quizzesById = {};
     Store.getQuizzes().forEach((qz) => (quizzesById[qz.id] = qz));
-    const rows = [["Quiz", "Question # in Quiz", "Chapter", "Chapter Question #", "Difficulty", "Notes", "Date Added"]];
+    const rows = [["Quiz", "Question # in Quiz", "Chapter", "Chapter Question #", "Book Name", "Answer", "Difficulty", "Notes", "Date Added"]];
     Store.getQuestions().forEach((q) => {
       rows.push([
         quizzesById[q.quizId] ? quizzesById[q.quizId].name : "(deleted quiz)",
         q.qNumInQuiz,
         q.chapter,
         q.chapterQNum,
+        q.bookName || "",
+        q.answer || "",
         q.difficulty,
         q.notes,
         Utils.formatDate(q.dateAdded),
@@ -761,7 +770,7 @@ const Charts = (() => {
   }
   const palette = () => [
     cssVar("--accent"), cssVar("--good"), cssVar("--gold"),
-    "#7C8AA5", "#9B6B9E", "#4C8CA8", "#B0785C", "#6A8F6B",
+    cssVar("--ink"), cssVar("--accent-deep") || "#780000", "#669BBC", "#C1121F", "#003049",
   ];
 
   function setupCanvas(canvas) {
@@ -866,7 +875,8 @@ const QuestionForm = (() => {
     const quizzes = Data.getQuizzes();
     const isEdit = !!question;
     const draftKey = isEdit ? `question:${question.id}` : "question:new";
-    const q = question || { quizId: presetQuizId || "", qNumInQuiz: "", chapter: "", chapterQNum: "", difficulty: "", notes: "" };
+    const q = question || { quizId: presetQuizId || "", qNumInQuiz: "", chapter: "", chapterQNum: "", bookName: "", answer: "", difficulty: "", notes: "" };
+    const existingBooks = [...new Set(Data.getQuestions().map((item) => (item.bookName || "").trim()).filter(Boolean))].sort();
 
     if (quizzes.length === 0) {
       Modal.open(`
@@ -922,6 +932,22 @@ const QuestionForm = (() => {
             <div class="err-msg" data-err="chapter"></div>
           </div>
 
+          <div class="form-grid-2">
+            <div class="form-row" id="row-bookName">
+              <label>Book Name</label>
+              <input type="text" id="qf-bookName" list="book-suggestions" value="${Utils.escapeHtml(q.bookName || "")}" placeholder="e.g. Panda, College Board…" autocomplete="off" />
+              <datalist id="book-suggestions">
+                ${existingBooks.map((b) => `<option value="${Utils.escapeHtml(b)}"></option>`).join("")}
+              </datalist>
+              <div class="err-msg" data-err="bookName"></div>
+            </div>
+            <div class="form-row" id="row-answer">
+              <label>Answer</label>
+              <input type="text" id="qf-answer" value="${Utils.escapeHtml(q.answer || "")}" placeholder="e.g. A, B, C, D or 42" />
+              <div class="err-msg" data-err="answer"></div>
+            </div>
+          </div>
+
           <div class="form-row" id="row-difficulty">
             <label>Difficulty</label>
             <div class="diff-picker" id="qf-diff-picker">
@@ -959,6 +985,8 @@ const QuestionForm = (() => {
         qNumInQuiz: document.getElementById("qf-qNumInQuiz").value,
         chapter: document.getElementById("qf-chapter").value,
         chapterQNum: document.getElementById("qf-chapterQNum").value,
+        bookName: document.getElementById("qf-bookName").value,
+        answer: document.getElementById("qf-answer").value,
         difficulty: document.getElementById("qf-difficulty").value,
         notes: document.getElementById("qf-notes").value,
       };
@@ -978,11 +1006,11 @@ const QuestionForm = (() => {
       }
       if (isEdit) {
         Data.updateQuestion(question.id, payload);
-        Activity.log("Edited question", `Q${payload.qNumInQuiz} · ${payload.chapter}`);
+        Activity.log("Edited question", `Q${payload.qNumInQuiz} · ${payload.chapter}${payload.bookName ? ` · ${payload.bookName}` : ""}`);
         Toast.show("Question updated.", "success");
       } else {
         Data.createQuestion(payload);
-        Activity.log("Added question", `Q${payload.qNumInQuiz} · ${payload.chapter}`);
+        Activity.log("Added question", `Q${payload.qNumInQuiz} · ${payload.chapter}${payload.bookName ? ` · ${payload.bookName}` : ""}`);
         Toast.show("Question added.", "success");
       }
       Draft.clear(draftKey);
@@ -1425,15 +1453,17 @@ Views.quizDetail = function (id) {
       <div class="section-title">Questions in this Quiz <span class="count-pill">${questions.length}</span></div>
       ${questions.length === 0 ? emptyState("▥", "No questions logged", "Add the first question from this quiz.") : `
       <div class="table-wrap"><table>
-        <thead><tr><th class="num">Q#</th><th>Chapter</th><th class="num">Ch. Q#</th><th>Difficulty</th><th>Notes</th><th></th></tr></thead>
+        <thead><tr><th class="num">Q#</th><th>Chapter</th><th class="num">Ch. Q#</th><th>Book</th><th>Answer</th><th>Difficulty</th><th>Notes</th><th></th></tr></thead>
         <tbody>
           ${questions.map((q) => `
             <tr>
               <td class="num">Q${q.qNumInQuiz}</td>
               <td><a href="#/chapter/${Utils.chapterSlug(q.chapter)}" class="chapter-chip">${Utils.escapeHtml(q.chapter)}</a></td>
               <td class="num">#${q.chapterQNum}</td>
+              <td style="font-weight:500;">${Utils.escapeHtml(q.bookName) || "—"}</td>
+              <td>${q.answer ? `<span class="answer-badge mono">${Utils.escapeHtml(q.answer)}</span>` : "—"}</td>
               <td>${diffBadge(q.difficulty)}</td>
-              <td style="color:var(--ink-soft); max-width:220px;">${Utils.escapeHtml(q.notes) || "—"}</td>
+              <td style="color:var(--ink-soft); max-width:200px;">${Utils.escapeHtml(q.notes) || "—"}</td>
               <td class="row-actions">
                 <button class="icon-btn" data-action="edit-question" data-id="${q.id}" title="Edit">✎</button>
                 <button class="icon-btn" data-action="delete-question" data-id="${q.id}" title="Delete">🗑</button>
@@ -1457,14 +1487,14 @@ Views.questions = function () {
 
   if (st.search.trim()) {
     const term = st.search.trim().toLowerCase();
-    rows = rows.filter((q) => [q.quizName, q.qNumInQuiz, q.chapter, q.chapterQNum, q.difficulty, q.notes].join(" ").toLowerCase().includes(term));
+    rows = rows.filter((q) => [q.quizName, q.qNumInQuiz, q.chapter, q.chapterQNum, q.bookName || "", q.answer || "", q.difficulty, q.notes || ""].join(" ").toLowerCase().includes(term));
   }
   if (st.filters.chapter) rows = rows.filter((q) => q.chapter === st.filters.chapter);
   if (st.filters.quizId) rows = rows.filter((q) => q.quizId === st.filters.quizId);
   if (st.filters.difficulty) rows = rows.filter((q) => q.difficulty === st.filters.difficulty);
 
   rows.sort((a, b) => {
-    let av = a[st.sortKey], bv = b[st.sortKey];
+    let av = a[st.sortKey] || "", bv = b[st.sortKey] || "";
     if (typeof av === "string") av = av.toLowerCase();
     if (typeof bv === "string") bv = bv.toLowerCase();
     if (av < bv) return st.sortDir === "asc" ? -1 : 1;
@@ -1490,7 +1520,7 @@ Views.questions = function () {
     </div>
 
     <div class="filter-bar">
-      <input type="text" id="q-search" placeholder="Search notes, chapter, quiz…" value="${Utils.escapeHtml(st.search)}" style="min-width:220px;" />
+      <input type="text" id="q-search" placeholder="Search notes, book, answer, chapter, quiz…" value="${Utils.escapeHtml(st.search)}" style="min-width:220px;" />
       <select id="f-chapter">
         <option value="">All Chapters</option>
         ${CONFIG.CHAPTERS.map((c) => `<option value="${Utils.escapeHtml(c)}" ${st.filters.chapter === c ? "selected" : ""}>${Utils.escapeHtml(c)}</option>`).join("")}
@@ -1514,6 +1544,8 @@ Views.questions = function () {
           <th class="num" data-sort="qNumInQuiz">Q#${arrow("qNumInQuiz")}</th>
           <th data-sort="chapter">Chapter${arrow("chapter")}</th>
           <th class="num" data-sort="chapterQNum">Ch. Q#${arrow("chapterQNum")}</th>
+          <th data-sort="bookName">Book${arrow("bookName")}</th>
+          <th data-sort="answer">Answer${arrow("answer")}</th>
           <th data-sort="difficulty">Difficulty${arrow("difficulty")}</th>
           <th>Notes</th>
           <th></th>
@@ -1525,8 +1557,10 @@ Views.questions = function () {
               <td class="num">Q${q.qNumInQuiz}</td>
               <td><a href="#/chapter/${Utils.chapterSlug(q.chapter)}" class="chapter-chip">${Utils.escapeHtml(q.chapter)}</a></td>
               <td class="num">#${q.chapterQNum}</td>
+              <td style="font-weight:500;">${Utils.escapeHtml(q.bookName) || "—"}</td>
+              <td>${q.answer ? `<span class="answer-badge mono">${Utils.escapeHtml(q.answer)}</span>` : "—"}</td>
               <td>${diffBadge(q.difficulty)}</td>
-              <td style="color:var(--ink-soft); max-width:240px;">${Utils.escapeHtml(q.notes) || "—"}</td>
+              <td style="color:var(--ink-soft); max-width:220px;">${Utils.escapeHtml(q.notes) || "—"}</td>
               <td class="row-actions">
                 <button class="icon-btn" data-action="edit-question" data-id="${q.id}" title="Edit">✎</button>
                 <button class="icon-btn" data-action="delete-question" data-id="${q.id}" title="Delete">🗑</button>
@@ -1563,13 +1597,15 @@ Views.chapter = function (chapterName) {
     </div>
     ${questions.length === 0 ? emptyState("▨", "Nothing collected yet", "This chapter has no questions logged. It'll show up in Missing Chapters on the dashboard until it does.") : `
     <div class="table-wrap"><table>
-      <thead><tr><th class="num">Chapter Q#</th><th>Quiz</th><th class="num">Quiz Q#</th><th>Difficulty</th><th>Notes</th><th></th></tr></thead>
+      <thead><tr><th class="num">Chapter Q#</th><th>Quiz</th><th class="num">Quiz Q#</th><th>Book</th><th>Answer</th><th>Difficulty</th><th>Notes</th><th></th></tr></thead>
       <tbody>
         ${questions.map((q) => `
           <tr>
             <td class="num">#${q.chapterQNum}</td>
             <td><a href="#/quiz/${q.quizId}">${quizzesById[q.quizId] ? Utils.escapeHtml(quizzesById[q.quizId].name) : "(deleted quiz)"}</a></td>
             <td class="num">Q${q.qNumInQuiz}</td>
+            <td style="font-weight:500;">${Utils.escapeHtml(q.bookName) || "—"}</td>
+            <td>${q.answer ? `<span class="answer-badge mono">${Utils.escapeHtml(q.answer)}</span>` : "—"}</td>
             <td>${diffBadge(q.difficulty)}</td>
             <td style="color:var(--ink-soft); max-width:240px;">${Utils.escapeHtml(q.notes) || "—"}</td>
             <td class="row-actions">
