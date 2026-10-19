@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dr Bakr Team Malzama — Math Exam Question Bank</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div id="login-screen-root"></div>
+
+<!-- ============ APP SHELL ============ -->
+<div id="app-shell" class="app-shell" style="display:none;">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <div class="brand">
+        <svg width="26" height="26" viewBox="0 0 40 40" fill="none">
+          <rect x="2" y="2" width="36" height="36" rx="4" stroke="currentColor" stroke-width="2.5"/>
+          <path d="M10 14h20M10 20h20M10 26h12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <span>Dr Bakr Team Malzama</span>
+      </div>
+      <button class="icon-btn" id="sidebar-close" aria-label="Close menu">✕</button>
+    </div>
+
+    <nav class="nav-group">
+      <p class="nav-label">Overview</p>
+      <a href="#/dashboard" class="nav-link" data-route="dashboard">
+        <span class="nav-ico">◧</span>Dashboard
+      </a>
+      <a href="#/statistics" class="nav-link" data-route="statistics">
+        <span class="nav-ico">◨</span>Statistics
+      </a>
+    </nav>
+
+    <nav class="nav-group">
+      <p class="nav-label">Tests & Work</p>
+      <a href="#/quizzes" class="nav-link" data-route="quizzes">
+        <span class="nav-ico">▤</span>Quizzes & Tests
+      </a>
+      <a href="#/questions" class="nav-link" data-route="questions">
+        <span class="nav-ico">▥</span>All Questions
+      </a>
+      <a href="#/tasks" class="nav-link" data-route="tasks" id="sidebar-tasks-link">
+        <span class="nav-ico">☑</span>
+        <span style="flex:1;">Tasks</span>
+        <span class="nav-task-badge" id="sidebar-task-count" style="display:none;">0</span>
+      </a>
+      <a href="#/missing" class="nav-link" data-route="missing">
+        <span class="nav-ico">▨</span>Missing Report
+      </a>
+    </nav>
+
+    <nav class="nav-group nav-chapters">
+      <p class="nav-label">Chapters</p>
+      <div id="chapter-nav-list" class="chapter-nav-list"></div>
+    </nav>
+
+    <nav class="nav-group" id="nav-group-admin">
+      <p class="nav-label">Admin</p>
+      <a href="#/users" class="nav-link" data-route="users">
+        <span class="nav-ico">☺</span>Team & Users
+      </a>
+      <a href="#/activity" class="nav-link" data-route="activity">
+        <span class="nav-ico">◷</span>Activity Log
+      </a>
+    </nav>
+
+    <nav class="nav-group" id="nav-group-data">
+      <p class="nav-label">Data</p>
+      <a href="#/data" class="nav-link" data-route="data">
+        <span class="nav-ico">⇅</span>Import / Export & Sync
+      </a>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <div class="user-chip" id="sidebar-user-chip">
+        <div class="user-avatar" id="sidebar-user-avatar">?</div>
+        <div class="user-meta">
+          <span id="sidebar-user-name">—</span>
+          <span class="user-role" id="sidebar-user-role">—</span>
+        </div>
+        <button class="icon-btn" id="logout-btn" title="Log out">⏻</button>
+      </div>
+      <button class="theme-toggle" id="theme-toggle" title="Toggle theme (T)">
+        <span id="theme-icon">☾</span> <span id="theme-label">Dark</span>
+      </button>
+    </div>
+  </aside>
+
+  <div class="sidebar-scrim" id="sidebar-scrim"></div>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn menu-btn" id="menu-btn" aria-label="Open menu">☰</button>
+      <div class="topbar-search">
+        <span class="search-ico">⌕</span>
+        <input type="text" id="global-search" placeholder="Search quiz, chapter, question #, book, answer, notes… (press /)" />
+      </div>
+
+      <!-- Task Notification Bell -->
+      <div class="notif-wrapper" id="notif-wrapper">
+        <button class="notif-btn" id="notif-bell-btn" title="Your Task Notifications" aria-label="Task Notifications">
+          <span class="notif-icon">🔔</span>
+          <span class="notif-badge" id="notif-badge" style="display:none;">0</span>
+        </button>
+        <div class="notif-dropdown" id="notif-dropdown" style="display:none;"></div>
+      </div>
+
+      <button class="cloud-sync-btn" id="cloud-sync-btn" title="Cloud & Firebase Sync Status">
+        <span class="sync-dot" id="sync-dot"></span>
+        <span class="sync-label" id="sync-label">Cloud: Local</span>
+      </button>
+      <button class="btn btn-primary btn-sm" id="quick-add-btn">+ Add Question</button>
+    </header>
+
+    <div id="toast-stack" class="toast-stack"></div>
+
+    <div id="view-root" class="view-root">
+      <!-- injected per-route -->
+    </div>
+  </main>
+</div>
+
+<!-- ============ MODAL ROOT ============ -->
+<div id="modal-root"></div>
+
+<!-- Firebase App & Firestore (Compat SDK) -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
